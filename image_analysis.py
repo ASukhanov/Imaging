@@ -5,7 +5,18 @@ Common image analysis using pyqtgraph
 """
 #__version__ = 'v01 2017-12-20' #created
 #__version__ = 'v02 2017-12-20' # fixed possible line padding in imageToArray
-__version__ = 'v03 2017-12-26' #
+__version__ = 'v03 2017-12-26' # profiling added
+'''
+image_analysis.py version v03 2017-12-26
+total time: 0.606
+profile:
+load: 0.0759
+toArray: 0.00106
+levels: 0.0372
+iso: 0.295
+roi: 0.185
+show: 0.0118
+'''
 
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
