@@ -1,11 +1,13 @@
 #!/usr/bin/python
 # -*- coding: utf-8 -*-
 """
-Common image analysis using pyqtgraph
+Common image analysis using pyqtgraph and optionally, OpenCV.
+OpenCV is ~30% faster, it supports more image formats, including 16-bit/channel . 
+
 """
 #__version__ = 'v01 2017-12-20' #created
 #__version__ = 'v02 2017-12-20' # fixed possible line padding in imageToArray
-__version__ = 'v03 2017-12-26' # profiling added
+#__version__ = 'v03 2017-12-26' # profiling added
 '''
 image_analysis.py version v03 2017-12-26
 total time: 0.606
@@ -17,12 +19,28 @@ iso: 0.295
 roi: 0.185
 show: 0.0118
 '''
+__version__ = 'v04 2017-12-26' # opencv
+'''
+total time: 0.583
+profile:
+toArray: 0.0635 #20% faster
+levels: 0.0332
+iso: 0.262
+roi: 0.213
+show: 0.0106
+'''
+__version__ = 'v05 2017-12-26' # transformation for openCV, not finished
 
+import sys
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtGui
 import numpy as np
 from timeit import default_timer as timer
+cv = None
+import cv2 as cv
 
+#`````````````````````````````````````````````````````````````````````````````
+# not needed for OpenCV
 def imageToArray(img, copy=False, transpose=True):
     """ Corrected pyqtgraph function, supporting Indexed formats.
     Convert a QImage into numpy array. The image must have format RGB32, ARGB32, or ARGB32_Premultiplied.
@@ -52,7 +70,7 @@ def imageToArray(img, copy=False, transpose=True):
         #    # Required for Python 2.6, PyQt 4.10
         #    # If this works on all platforms, then there is no need to use np.asarray..
         #    arr = np.frombuffer(ptr, np.ubyte, img.byteCount())
-    
+
     if fmt in (img.Format_Indexed8,24):
         #arr = arr.reshape(img.height(), img.width())
         arr = arr.reshape(img.height(), bpl)
@@ -69,7 +87,7 @@ def imageToArray(img, copy=False, transpose=True):
         return arr.transpose((1,0,2))
     else:
         return arr
-
+#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 def rgb2gray(data):
     # convert RGB to Grayscale using weighted sum
     if len(data.shape) < 3:
@@ -95,6 +113,7 @@ parser.add_argument('-Y','--sy', type=float, default = 1., help=
 parser.add_argument('-R','--rotate', type=float, default = 0., help=
   'rotate view by degree R')
 parser.add_argument('-H','--hist', action='store_false', help='Disable histogram with contrast and isocurve contol')
+parser.add_argument('-v','--cv', action='store_true', help='Use openCV')
 parser.add_argument('file', nargs='*', default='avt23.png')
 
 pargs = parser.parse_args()
@@ -131,12 +150,26 @@ qimg = QtGui.QImage()
 import collections
 profilingState = collections.OrderedDict()
 profilingStart = timer()
-if not qimg.load(pargs.file): 
-    print('ERROR loading image')
-    sys.exit(1)
-qimg = qimg.transformed(transform)
-profilingState['load'] = timer()
-if True:
+if pargs.cv:
+    data = cv.imread(pargs.file,-1)
+    try:
+        win.setWindowTitle('image: '+pargs.file+' '+str(data.shape)+' of '
+        +str(data.dtype))
+    except:
+        print('ERROR loading image '+pargs.file)
+        sys.exit(1)
+    profilingState['load'] = timer()
+    #transform = cv.getRotationMatrix2D(tuple([i/2. for i in data.shape]),pargs.rotate,pargs.sx)
+    #data = cv.warpAffine(data,transform,data.shape)
+    #profilingState['trans'] = timer()
+else:
+    if not qimg.load(pargs.file): 
+        print('ERROR loading image '+pargs.file)
+        sys.exit(1)
+    qimg = qimg.transformed(transform)
+    profilingState['load'] = timer()
+
+    # Convert image to numpy array
     shape = qimg.width(),qimg.height()
     strides0 = qimg.bytesPerLine()
     format = qimg.format()
@@ -144,9 +177,10 @@ if True:
     try: fmt = fdict[format]
     except: fmt = 'fmt'+str(format)
     if pargs.dbg: print('image: '+str((fmt,shape,strides0)))
-win.setWindowTitle('image:'+pargs.file+' '+fmt+str(shape))
-data = imageToArray(qimg,transpose=False) #,copy=True)
-profilingState['toArray'] = timer()
+    win.setWindowTitle('image:'+pargs.file+' '+fmt+str(shape))
+    data = imageToArray(qimg,transpose=False) #,copy=True)
+    profilingState['toArray'] = timer()
+    
 if pargs.dbg: print('array: '+str((data.shape,data)))
 
 if pargs.hist:
