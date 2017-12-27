@@ -31,6 +31,19 @@ show: 0.0106
 '''
 #__version__ = 'r05 2017-12-27' # col-major orientation for QT to match openCV 
 __version__ = 'v06 2017-12-27' # row-major for ImageItem
+''' profiling avt29.png (ARGB 1620x1220) on acnlinec, pyqtgraph 0.10.0:
+image_analysis.py using pyqtgraph, version v06 2017-12-27
+total time: 1.8
+profile:
+load: 0.227
+trans: 2.1e-05
+toArray: 0.00132
+image: 0.215
+levels: 0.0756
+iso: 0.4
+roi: 0.862
+show: 0.0221
+'''
 
 import sys
 import numpy as np
@@ -132,7 +145,6 @@ profilingStart = timer()
 #,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 #````````````````````````````Get data from file```````````````````````````````
 windowTitle = 'image:'+pargs.file.split('/')[-1:][0]+' '
-print 'wt:',windowTitle
 
 if pargs.cv: # get data array using OpenCV
     import cv2 as cv # import openCV
@@ -160,9 +172,7 @@ if pargs.cv: # get data array using OpenCV
         # rotate image
         transform = cv.getRotationMatrix2D((width/2,height/2),-pargs.rotate,1)
         height,width = data.shape[:2]
-        print data.shape
         data = cv.warpAffine(data,transform,(width,height))
-        print data.shape
         profilingState['trans'] = timer()
     
 else: # get data array using QT
@@ -253,13 +263,10 @@ if pargs.roi:
     # Custom ROI for selecting an image region
     dockPlot = pg.dockarea.Dock("dockPlot", size=(1,100))
     area.addDock(dockPlot, 'bottom')
-    # dockPlot: Hide title bar on dock Plot
-    dockPlot.hideTitleBar()
+    dockPlot.hideTitleBar() # dockPlot: Hide title bar on dock Plot
     roiPlot = pg.PlotWidget()
     dockPlot.addWidget(roiPlot)
-    #roi = pg.ROI([-8, 14], [6, 5])
     w,h = data.shape[:2]
-    print 'shape:',data.shape
     roi = pg.ROI([w*0.25, h*0.25], [w*0.5, h*0.5])
     roi.addScaleHandle([1, 1], [0, 0])
     plottedImage.addItem(roi)
