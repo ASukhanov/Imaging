@@ -29,18 +29,19 @@ iso: 0.262
 roi: 0.213
 show: 0.0106
 '''
-__version__ = 'r05 2017-12-27' # col-major orientation for QT to match openCV 
-
+#__version__ = 'r05 2017-12-27' # col-major orientation for QT to match openCV 
+__version__ = 'v06 2017-12-27' # row-major for ImageItem
 
 import sys
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtCore, QtGui
 import numpy as np
 from timeit import default_timer as timer
-cv = None
-import cv2 as cv
+import pyqtgraph as pg
+from pyqtgraph.Qt import QtCore, QtGui
+# Interpret image data as row-major instead of col-majorwin = QtGui.QMainWindow()
+#pg.setConfigOptions(imageAxisOrder='row-major')
+import pyqtgraph.dockarea
 
-#`````````````````````````````````````````````````````````````````````````````
+#````````````````````````````Helper functions`````````````````````````````````
 # not needed for OpenCV
 def imageToArray(img, copy=False, transpose=True):
     """ Corrected pyqtgraph function, supporting Indexed formats.
@@ -88,7 +89,7 @@ def imageToArray(img, copy=False, transpose=True):
         return arr.transpose((1,0,2))
     else:
         return arr
-#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+
 def rgb2gray(data):
     # convert RGB to Grayscale using weighted sum
     if len(data.shape) < 3:
@@ -96,11 +97,8 @@ def rgb2gray(data):
     else:
         r,g,b = data[:,:,0], data[:,:,1], data[:,:,2]
         return 0.2989 * r + 0.5870 * g + 0.1140 * b
-
-# Interpret image data as row-major instead of col-major
-#pg.setConfigOptions(imageAxisOrder='row-major')
-
-# parse arguments
+#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+#````````````````````````````parse arguments``````````````````````````````````
 import argparse
 parser = argparse.ArgumentParser(description='''
   Common image analysis using pyqtgraph''')
@@ -116,47 +114,32 @@ parser.add_argument('-R','--rotate', type=float, default = 0., help=
 parser.add_argument('-H','--hist', action='store_false', help='Disable histogram with contrast and isocurve contol')
 parser.add_argument('-v','--cv', action='store_true', help='Use openCV')
 parser.add_argument('file', nargs='*', default='avt23.png')
-
 pargs = parser.parse_args()
+
 if not pargs.hist: pargs.iso = False
 needTrans = not (pargs.sx==1 and pargs.sy==1 and pargs.rotate==0)
 if isinstance(pargs.file, list): pargs.file = pargs.file[0]
 print(parser.prog+' using '+('openCV' if pargs.cv else 'pyqtgraph')+', version '+__version__)
 
-pg.mkQApp()
-win = pg.GraphicsLayoutWidget()
-
-qGraphicsGridLayout = win.ci.layout
-qGraphicsGridLayout.setColumnFixedWidth(1,150)
-
 # setup image transformation
 transform = QtGui.QTransform().scale(pargs.sx, pargs.sy)
 transform.rotate(pargs.rotate)
 
-# A plot area (ViewBox + axes) for displaying the image
-p1 = win.addPlot()
-
-# Item for displaying image data
-img = pg.ImageItem()
-p1.addItem(img)
-
-'''
-# Generate image data
-data = np.random.normal(size=(200, 100))
-data[20:80, 20:80] += 2.
-data = pg.gaussianFilter(data, (3, 3))
-data += np.random.normal(size=(200, 100)) * 0.1
-'''
-# Get data from file
+# set up profiling
 import collections
 profilingState = collections.OrderedDict()
 profilingStart = timer()
+#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+#````````````````````````````Get data from file```````````````````````````````
+windowTitle = 'image:'+pargs.file.split('/')[-1:][0]+' '
+print 'wt:',windowTitle
+
 if pargs.cv: # get data array using OpenCV
+    import cv2 as cv # import openCV
     data = cv.imread(pargs.file,-1)
     try:
-        msg = 'image: '+pargs.file+' (h,w,d):'+str(data.shape)+' of '+str(data.dtype)
-        print(msg)
-        win.setWindowTitle(msg)
+        windowTitle += '(h,w,d):'+str(data.shape)+' of '+str(data.dtype)
+        if pargs.dbg: print(windowTitle)
     except Exception as e:
         print('ERROR loading image '+pargs.file+str(e))
         sys.exit(1)
@@ -193,31 +176,61 @@ else: # get data array using QT
     profilingState['trans'] = timer()
 
     # Convert image to numpy array
-    shape = qimg.width(),qimg.height()
+    shape = qimg.height(),qimg.width(),
     strides0 = qimg.bytesPerLine()
     format = qimg.format()
     fdict={4:'RGB32', 3:'Indexed8',5:'ARGB32',6:'ARGB32_Premultiplied'}
     try: fmt = fdict[format]
     except: fmt = 'fmt'+str(format)
-    if pargs.dbg: print('image: '+str((fmt,shape,strides0)))
-    win.setWindowTitle('image:'+pargs.file+' '+fmt+str(shape))
     data = imageToArray(qimg,transpose=False) #,copy=True)
+    windowTitle += fmt+' h,w,d:'+str(data.shape)
+    if pargs.dbg: print(windowTitle)
     profilingState['toArray'] = timer()
-    
+#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,    
 if pargs.dbg: print('array: '+str((data.shape,data)))
 
+# data was: height,width,depth, but setImage require width,height,depth
+data = np.swapaxes(data,0,1)
+
+# set image
+imgItem = pg.ImageItem()
+imgItem.setImage(data)
+#''''''''''''''''''''''''''''Create craphic objects```````````````````````````
+pg.mkQApp()
+#win = pg.GraphicsLayoutWidget()
+#qGraphicsGridLayout = win.ci.layout
+#qGraphicsGridLayout.setColumnFixedWidth(1,150)
+win = QtGui.QMainWindow()
+area = pg.dockarea.DockArea()
+win.setCentralWidget(area)
+win.setWindowTitle(windowTitle)
+
+dockImage = pg.dockarea.Dock("dockImage - Image", size=(600,800))
+area.addDock(dockImage, 'left')
+dockImage.hideTitleBar()
+
+# Item for displaying image data
+gl = pg.GraphicsLayoutWidget()
+dockImage.addWidget(gl)
+plottedImage = gl.addPlot()
+# Item for displaying image data
+plottedImage.addItem(imgItem)
+profilingState['image'] = timer()
+
+#````````````````````````````Analysis objects`````````````````````````````````
 if pargs.hist:
     # Contrast/color control
     hist = pg.HistogramLUTItem()
-    hist.setImageItem(img)
+    hist.setImageItem(imgItem)
     hist.setLevels(data.min(), data.max())
-    win.addItem(hist)
+    #win.addItem(hist)
+    gl.addItem(hist)
     profilingState['levels'] = timer()
 
 if pargs.iso:
     # Isocurve drawing
     iso = pg.IsocurveItem(level=0.8, pen='g')
-    iso.setParentItem(img)
+    iso.setParentItem(imgItem)
     iso.setZValue(5)
     # Draggable line for setting isocurve level
     isoLine = pg.InfiniteLine(angle=0, movable=True, pen='g')
@@ -238,35 +251,34 @@ if pargs.iso:
 
 if pargs.roi:
     # Custom ROI for selecting an image region
+    dockPlot = pg.dockarea.Dock("dockPlot", size=(1,100))
+    area.addDock(dockPlot, 'bottom')
+    # dockPlot: Hide title bar on dock Plot
+    dockPlot.hideTitleBar()
+    roiPlot = pg.PlotWidget()
+    dockPlot.addWidget(roiPlot)
     #roi = pg.ROI([-8, 14], [6, 5])
-    h,w = data.shape[:2]
+    w,h = data.shape[:2]
+    print 'shape:',data.shape
     roi = pg.ROI([w*0.25, h*0.25], [w*0.5, h*0.5])
-    roi.addScaleHandle([0.5, 1], [0.5, 0.5])
-    roi.addScaleHandle([0, 0.5], [0.5, 0.5])
-    p1.addItem(roi)
+    roi.addScaleHandle([1, 1], [0, 0])
+    plottedImage.addItem(roi)
     roi.setZValue(10)  # make sure ROI is drawn above image
-
-    # Another plot area for displaying ROI data
-    win.nextRow()
-    p2 = win.addPlot(colspan=2)
-    p2.setMaximumHeight(250)
 
     # Callback for handling user interaction in ROI
     def updatePlot():
-        global img, roi, data, p2
-        selected = roi.getArrayRegion(rgb2gray(data), img)
-        p2.plot(selected.mean(axis=0), clear=True)#, stepMode=True)
+        global imgItem, roi, data, p2
+        selected = roi.getArrayRegion(rgb2gray(data), imgItem)
+        roiPlot.plot(selected.mean(axis=0), clear=True)#, stepMode=True)
     
     # Connect callback to signal
     roi.sigRegionChanged.connect(updatePlot)
     updatePlot()
     profilingState['roi'] = timer()
-
+#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 win.resize(1200, 800)
 win.show()
 
-# set image
-img.setImage(data)
 profilingStop = timer()
 profilingState['show'] = profilingStop
 
@@ -279,11 +291,11 @@ if True:
         profilingStart = value
 
 # set position and scale of image
-#img.scale(0.2, 0.2)
-#img.translate(-50, 0)
+#imgItem.scale(0.2, 0.2)
+#imgItem.translate(-50, 0)
 
 # zoom to fit image
-#p1.autoRange()  
+#plottedImage.autoRange()  
 
 # enable Ctrl-C to kill application
 import signal
