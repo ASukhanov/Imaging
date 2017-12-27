@@ -8,41 +8,25 @@ OpenCV supports more image formats, including 16-bit/channel.
 #__version__ = 'v01 2017-12-20' #created
 #__version__ = 'v02 2017-12-20' # fixed possible line padding in imageToArray
 #__version__ = 'v03 2017-12-26' # profiling added
-'''
-image_analysis.py version v03 2017-12-26
-total time: 0.606
-profile:
-load: 0.0759
-toArray: 0.00106
-levels: 0.0372
-iso: 0.295
-roi: 0.185
-show: 0.0118
-'''
 #__version__ = 'v04 2017-12-26' # opencv
-'''
-total time: 0.583
-profile:
-toArray: 0.0635 #20% faster
-levels: 0.0332
-iso: 0.262
-roi: 0.213
-show: 0.0106
-'''
 #__version__ = 'r05 2017-12-27' # col-major orientation for QT to match openCV 
-__version__ = 'v06 2017-12-27' # row-major for ImageItem
-''' profiling avt29.png (ARGB 1620x1220) on acnlinec, pyqtgraph 0.10.0:
-image_analysis.py using pyqtgraph, version v06 2017-12-27
-total time: 1.8
-profile:
-load: 0.227
-trans: 2.1e-05
-toArray: 0.00132
-image: 0.215
-levels: 0.0756
-iso: 0.4
-roi: 0.862
-show: 0.0221
+__version__ = 'r06 2017-12-27' # row-major for ImageItem
+''' Comparison of analysis of avt29.png (ARGB 1620x1220) 
+on acnlinec and laptop Dell Latitude E6420, both with pyqtgraph 0.10.0:
++-----------------+----------+
+|    acnlinec     |  laptop  |
++-----------------+----------+
+ total time: 1.8    0.9
+ profile:
+ load: 0.227        0.075
+ trans: 2.1e-05     2.1e-5
+ toArray: 0.00132   0.00103
+ image: 0.215       0.164
+ levels: 0.0756     0.0437
+ iso: 0.4           0.384
+ roi: 0.862         0.226
+ show: 0.0221       0.0065
+------------------+----------+
 '''
 
 import sys
@@ -67,17 +51,14 @@ def imageToArray(img, copy=False, transpose=True):
     fmt = img.format()
     ptr = img.bits()
     bpl = img.bytesPerLine() # the bpl is width + len(padding). The padding area is not used for storing anything,
-    #dtype = np.ushort if fmt==img.Format_Indexed8 else np.ubyte
     dtype = np.ubyte
-    #print 'bpl,dtype',bpl,dtype
     USE_PYSIDE = False
     if USE_PYSIDE:
         arr = np.frombuffer(ptr, dtype=dtype)
     else:
         ptr.setsize(img.byteCount())
         #arr = np.asarray(ptr)
-        #arr = np.frombuffer(ptr, dtype=np.ubyte) # this is 30% faster than asarray
-        arr = np.frombuffer(ptr, dtype=dtype)
+        arr = np.frombuffer(ptr, dtype=dtype) # this is 30% faster than asarray
         #print('imageToArray:'+str((fmt,img.byteCount(),arr.size,arr.itemsize)))
         #print(str(arr))
         #
@@ -87,11 +68,9 @@ def imageToArray(img, copy=False, transpose=True):
         #    arr = np.frombuffer(ptr, np.ubyte, img.byteCount())
 
     if fmt in (img.Format_Indexed8,24):
-        #arr = arr.reshape(img.height(), img.width())
         arr = arr.reshape(img.height(), bpl)
     else:
         arr = arr.reshape(img.height(), img.width(), 4)
-        #arr = arr.reshape(img.height(), bpl, 4)
     if fmt == img.Format_RGB32:
         arr[...,3] = 255
     
@@ -280,8 +259,9 @@ if pargs.roi:
     
     # Connect callback to signal
     roi.sigRegionChanged.connect(updatePlot)
+    profilingState['roi init'] = timer()
     updatePlot()
-    profilingState['roi'] = timer()
+    profilingState['roi update'] = timer()
 #,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 win.resize(1200, 800)
 win.show()
