@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 Common image analysis using pyqtgraph and optionally, OpenCV.
-OpenCV is ~30% faster, it supports more image formats, including 16-bit/channel . 
-
+The performance of pyqtgraph and OpenCV is similar.
+OpenCV supports more image formats, including 16-bit/channel.
 """
 #__version__ = 'v01 2017-12-20' #created
 #__version__ = 'v02 2017-12-20' # fixed possible line padding in imageToArray
@@ -19,7 +19,7 @@ iso: 0.295
 roi: 0.185
 show: 0.0118
 '''
-__version__ = 'v04 2017-12-26' # opencv
+#__version__ = 'v04 2017-12-26' # opencv
 '''
 total time: 0.583
 profile:
@@ -29,7 +29,8 @@ iso: 0.262
 roi: 0.213
 show: 0.0106
 '''
-__version__ = 'v05 2017-12-26' # transformation for openCV, not finished
+__version__ = 'r05 2017-12-27' # col-major orientation for QT to match openCV 
+
 
 import sys
 import pyqtgraph as pg
@@ -97,7 +98,7 @@ def rgb2gray(data):
         return 0.2989 * r + 0.5870 * g + 0.1140 * b
 
 # Interpret image data as row-major instead of col-major
-pg.setConfigOptions(imageAxisOrder='row-major')
+#pg.setConfigOptions(imageAxisOrder='row-major')
 
 # parse arguments
 import argparse
@@ -106,9 +107,9 @@ parser = argparse.ArgumentParser(description='''
 parser.add_argument('-d','--dbg', action='store_true', help='turn on debugging')
 parser.add_argument('-i','--iso', action='store_false', help='Disable Isocurve drawing')
 parser.add_argument('-r','--roi', action='store_false', help='Disable Region Of Interest analysis')
-parser.add_argument('-X','--sx', type=float, default = 1., help=
+parser.add_argument('-x','--sx', type=float, default = 1, help=
   'scale view horizontally by factor SX, use negative for mirroring')
-parser.add_argument('-Y','--sy', type=float, default = 1., help=
+parser.add_argument('-y','--sy', type=float, default = 1, help=
   'scale view vertically by factor SY')    
 parser.add_argument('-R','--rotate', type=float, default = 0., help=
   'rotate view by degree R')
@@ -118,8 +119,9 @@ parser.add_argument('file', nargs='*', default='avt23.png')
 
 pargs = parser.parse_args()
 if not pargs.hist: pargs.iso = False
+needTrans = not (pargs.sx==1 and pargs.sy==1 and pargs.rotate==0)
 if isinstance(pargs.file, list): pargs.file = pargs.file[0]
-print(parser.prog+' version '+__version__)
+print(parser.prog+' using '+('openCV' if pargs.cv else 'pyqtgraph')+', version '+__version__)
 
 pg.mkQApp()
 win = pg.GraphicsLayoutWidget()
@@ -128,7 +130,7 @@ qGraphicsGridLayout = win.ci.layout
 qGraphicsGridLayout.setColumnFixedWidth(1,150)
 
 # setup image transformation
-transform = QtGui.QTransform().scale(pargs.sx, -pargs.sy)
+transform = QtGui.QTransform().scale(pargs.sx, pargs.sy)
 transform.rotate(pargs.rotate)
 
 # A plot area (ViewBox + axes) for displaying the image
@@ -146,28 +148,49 @@ data = pg.gaussianFilter(data, (3, 3))
 data += np.random.normal(size=(200, 100)) * 0.1
 '''
 # Get data from file
-qimg = QtGui.QImage()
 import collections
 profilingState = collections.OrderedDict()
 profilingStart = timer()
-if pargs.cv:
+if pargs.cv: # get data array using OpenCV
     data = cv.imread(pargs.file,-1)
     try:
-        win.setWindowTitle('image: '+pargs.file+' '+str(data.shape)+' of '
-        +str(data.dtype))
-    except:
-        print('ERROR loading image '+pargs.file)
+        msg = 'image: '+pargs.file+' (h,w,d):'+str(data.shape)+' of '+str(data.dtype)
+        print(msg)
+        win.setWindowTitle(msg)
+    except Exception as e:
+        print('ERROR loading image '+pargs.file+str(e))
         sys.exit(1)
     profilingState['load'] = timer()
-    #transform = cv.getRotationMatrix2D(tuple([i/2. for i in data.shape]),pargs.rotate,pargs.sx)
-    #data = cv.warpAffine(data,transform,data.shape)
-    #profilingState['trans'] = timer()
-else:
+    
+    if needTrans:
+        flip = None
+        # flip image
+        if pargs.sx < 0: flip = 0; pargs.sx = -pargs.sx
+        if pargs.sy < 0: flip = 1; pargs.sy = -pargs.sy
+        if flip != None: data = cv.data.flip(data,flip)
+        height,width = data.shape[:2]
+
+        # scale image
+        #data = cv.resize(data,(width*int(pargs.sx),height*int(pargs.sy))) #,interpolation=cv.INTER_CUBIC
+        data = cv.resize(data,(0,0),fx=pargs.sx,fy=pargs.sy) #,interpolation=cv.INTER_CUBIC
+        
+        # rotate image
+        transform = cv.getRotationMatrix2D((width/2,height/2),-pargs.rotate,1)
+        height,width = data.shape[:2]
+        print data.shape
+        data = cv.warpAffine(data,transform,(width,height))
+        print data.shape
+        profilingState['trans'] = timer()
+    
+else: # get data array using QT
+    qimg = QtGui.QImage()
     if not qimg.load(pargs.file): 
         print('ERROR loading image '+pargs.file)
         sys.exit(1)
-    qimg = qimg.transformed(transform)
     profilingState['load'] = timer()
+    if needTrans:
+        qimg = qimg.transformed(transform)
+    profilingState['trans'] = timer()
 
     # Convert image to numpy array
     shape = qimg.width(),qimg.height()
@@ -239,7 +262,7 @@ if pargs.roi:
     updatePlot()
     profilingState['roi'] = timer()
 
-win.resize(800, 800)
+win.resize(1200, 800)
 win.show()
 
 # set image
