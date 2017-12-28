@@ -28,7 +28,10 @@ on acnlinec and laptop Dell Latitude E6420, both with pyqtgraph 0.10.0:
  show: 0.0221       0.0065
 ------------------+----------+
 '''
-__version__ = 'r06 2017-12-27' # flipping corrected
+#__version__ = 'r06 2017-12-27' # flipping corrected
+__version__ = 'v07 2017-12-28' # corrected the axis selection for ROI histogram
+#TODO-v07# the binning of the ROI is relative to the ROI itself, for example, if one pixel is saturated then in the roi hist its value will be splitted between the neighboring bins,
+# the ROI binning should be synchronized with the image pixels.
 
 import sys
 import numpy as np
@@ -39,58 +42,6 @@ from pyqtgraph.Qt import QtCore, QtGui
 #pg.setConfigOptions(imageAxisOrder='row-major')
 import pyqtgraph.dockarea
 
-#````````````````````````````Helper functions`````````````````````````````````
-# not needed for OpenCV
-def imageToArray(img, copy=False, transpose=True):
-    """ Corrected pyqtgraph function, supporting Indexed formats.
-    Convert a QImage into numpy array. The image must have format RGB32, ARGB32, or ARGB32_Premultiplied.
-    By default, the image is not copied; changes made to the array will appear in the QImage as well (beware: if 
-    the QImage is collected before the array, there may be trouble).
-    The array will have shape (width, height, (b,g,r,a)).
-    &RA: fix for Indexed8, take care of possible padding
-    """
-    fmt = img.format()
-    ptr = img.bits()
-    bpl = img.bytesPerLine() # the bpl is width + len(padding). The padding area is not used for storing anything,
-    dtype = np.ubyte
-    USE_PYSIDE = False
-    if USE_PYSIDE:
-        arr = np.frombuffer(ptr, dtype=dtype)
-    else:
-        ptr.setsize(img.byteCount())
-        #arr = np.asarray(ptr)
-        arr = np.frombuffer(ptr, dtype=dtype) # this is 30% faster than asarray
-        #print('imageToArray:'+str((fmt,img.byteCount(),arr.size,arr.itemsize)))
-        #print(str(arr))
-        #
-        #if img.byteCount() != arr.size * arr.itemsize:
-        #    # Required for Python 2.6, PyQt 4.10
-        #    # If this works on all platforms, then there is no need to use np.asarray..
-        #    arr = np.frombuffer(ptr, np.ubyte, img.byteCount())
-
-    if fmt in (img.Format_Indexed8,24):
-        arr = arr.reshape(img.height(), bpl)
-    else:
-        arr = arr.reshape(img.height(), img.width(), 4)
-    if fmt == img.Format_RGB32:
-        arr[...,3] = 255
-    
-    if copy:
-        arr = arr.copy()
-        
-    if transpose:
-        return arr.transpose((1,0,2))
-    else:
-        return arr
-
-def rgb2gray(data):
-    # convert RGB to Grayscale using weighted sum
-    if len(data.shape) < 3:
-        return data
-    else:
-        r,g,b = data[:,:,0], data[:,:,1], data[:,:,2]
-        return 0.2989 * r + 0.5870 * g + 0.1140 * b
-#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 #````````````````````````````parse arguments``````````````````````````````````
 import argparse
 parser = argparse.ArgumentParser(description='''
@@ -113,6 +64,59 @@ if not pargs.hist: pargs.iso = False
 needTrans = not (pargs.sx==1 and pargs.sy==1 and pargs.rotate==0)
 if isinstance(pargs.file, list): pargs.file = pargs.file[0]
 print(parser.prog+' using '+('openCV' if pargs.cv else 'pyqtgraph')+', version '+__version__)
+
+#````````````````````````````Helper functions`````````````````````````````````
+if not pargs.cv: # the following functions are not used with openCV
+    def imageToArray(img, copy=False, transpose=True):
+        """ Corrected pyqtgraph function, supporting Indexed formats.
+        Convert a QImage into numpy array. The image must have format RGB32, ARGB32, or ARGB32_Premultiplied.
+        By default, the image is not copied; changes made to the array will appear in the QImage as well (beware: if 
+        the QImage is collected before the array, there may be trouble).
+        The array will have shape (width, height, (b,g,r,a)).
+        &RA: fix for Indexed8, take care of possible padding
+        """
+        fmt = img.format()
+        ptr = img.bits()
+        bpl = img.bytesPerLine() # the bpl is width + len(padding). The padding area is not used for storing anything,
+        dtype = np.ubyte
+        USE_PYSIDE = False
+        if USE_PYSIDE:
+            arr = np.frombuffer(ptr, dtype=dtype)
+        else:
+            ptr.setsize(img.byteCount())
+            #arr = np.asarray(ptr)
+            arr = np.frombuffer(ptr, dtype=dtype) # this is 30% faster than asarray
+            #print('imageToArray:'+str((fmt,img.byteCount(),arr.size,arr.itemsize)))
+            #print(str(arr))
+            #
+            #if img.byteCount() != arr.size * arr.itemsize:
+            #    # Required for Python 2.6, PyQt 4.10
+            #    # If this works on all platforms, then there is no need to use np.asarray..
+            #    arr = np.frombuffer(ptr, np.ubyte, img.byteCount())
+
+        if fmt in (img.Format_Indexed8,24):
+            arr = arr.reshape(img.height(), bpl)
+        else:
+            arr = arr.reshape(img.height(), img.width(), 4)
+        if fmt == img.Format_RGB32:
+            arr[...,3] = 255
+        
+        if copy:
+            arr = arr.copy()
+            
+        if transpose:
+            return arr.transpose((1,0,2))
+        else:
+            return arr
+
+def rgb2gray(data):
+    # convert RGB to Grayscale using weighted sum
+    if len(data.shape) < 3: # no need to convert gray arrays
+        return data
+    else:
+        r,g,b = data[:,:,0], data[:,:,1], data[:,:,2]
+        return 0.2989 * r + 0.5870 * g + 0.1140 * b
+#,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
 if not pargs.cv:
     # setup image transformation
@@ -148,7 +152,6 @@ if pargs.cv: # get data array using OpenCV
         height,width = data.shape[:2]
 
         # scale image
-        #data = cv.resize(data,(width*int(pargs.sx),height*int(pargs.sy))) #,interpolation=cv.INTER_CUBIC
         data = cv.resize(data,(0,0),fx=pargs.sx,fy=pargs.sy) #,interpolation=cv.INTER_CUBIC
         
         # rotate image
@@ -169,7 +172,6 @@ else: # get data array using QT
 
     # Convert image to numpy array
     shape = qimg.height(),qimg.width(),
-    strides0 = qimg.bytesPerLine()
     format = qimg.format()
     fdict={4:'RGB32', 3:'Indexed8',5:'ARGB32',6:'ARGB32_Premultiplied'}
     try: fmt = fdict[format]
@@ -212,7 +214,7 @@ profilingState['image'] = timer()
 #````````````````````````````Analysis objects`````````````````````````````````
 if pargs.hist:
     # Contrast/color control
-    hist = pg.HistogramLUTItem()
+    hist = pg.HistogramLUTItem(fillHistogram=False)
     hist.setImageItem(imgItem)
     hist.setLevels(data.min(), data.max())
     #win.addItem(hist)
@@ -258,7 +260,9 @@ if pargs.roi:
     def updatePlot():
         global imgItem, roi, data, p2
         selected = roi.getArrayRegion(rgb2gray(data), imgItem)
-        roiPlot.plot(selected.mean(axis=0), clear=True)#, stepMode=True)
+        #print 'selected ',selected
+        #print selected.mean(axis=1)
+        roiPlot.plot(selected.mean(axis=1), clear=True)#, stepMode=True)
     
     # Connect callback to signal
     roi.sigRegionChanged.connect(updatePlot)
