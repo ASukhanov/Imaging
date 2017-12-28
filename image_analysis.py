@@ -10,7 +10,7 @@ OpenCV supports more image formats, including 16-bit/channel.
 #__version__ = 'v03 2017-12-26' # profiling added
 #__version__ = 'v04 2017-12-26' # opencv
 #__version__ = 'r05 2017-12-27' # col-major orientation for QT to match openCV 
-__version__ = 'r06 2017-12-27' # row-major for ImageItem
+#__version__ = 'r06 2017-12-27' # row-major for ImageItem
 ''' Comparison of analysis of avt29.png (ARGB 1620x1220) 
 on acnlinec and laptop Dell Latitude E6420, both with pyqtgraph 0.10.0:
 +-----------------+----------+
@@ -28,6 +28,7 @@ on acnlinec and laptop Dell Latitude E6420, both with pyqtgraph 0.10.0:
  show: 0.0221       0.0065
 ------------------+----------+
 '''
+__version__ = 'r06 2017-12-27' # flipping corrected
 
 import sys
 import numpy as np
@@ -113,9 +114,10 @@ needTrans = not (pargs.sx==1 and pargs.sy==1 and pargs.rotate==0)
 if isinstance(pargs.file, list): pargs.file = pargs.file[0]
 print(parser.prog+' using '+('openCV' if pargs.cv else 'pyqtgraph')+', version '+__version__)
 
-# setup image transformation
-transform = QtGui.QTransform().scale(pargs.sx, pargs.sy)
-transform.rotate(pargs.rotate)
+if not pargs.cv:
+    # setup image transformation
+    transform = QtGui.QTransform().scale(pargs.sx, -pargs.sy)
+    transform.rotate(pargs.rotate)
 
 # set up profiling
 import collections
@@ -136,12 +138,13 @@ if pargs.cv: # get data array using OpenCV
         sys.exit(1)
     profilingState['load'] = timer()
     
+    data = cv.flip(data,0)
     if needTrans:
         flip = None
         # flip image
         if pargs.sx < 0: flip = 0; pargs.sx = -pargs.sx
         if pargs.sy < 0: flip = 1; pargs.sy = -pargs.sy
-        if flip != None: data = cv.data.flip(data,flip)
+        if flip != None: data = cv.flip(data,flip)
         height,width = data.shape[:2]
 
         # scale image
@@ -160,8 +163,8 @@ else: # get data array using QT
         print('ERROR loading image '+pargs.file)
         sys.exit(1)
     profilingState['load'] = timer()
-    if needTrans:
-        qimg = qimg.transformed(transform)
+    #if needTrans:
+    qimg = qimg.transformed(transform)
     profilingState['trans'] = timer()
 
     # Convert image to numpy array
