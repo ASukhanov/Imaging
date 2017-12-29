@@ -1,2 +1,2 @@
 # Imaging
-![What is this](screenshot_barsVSin.png)
+![](screenShot_barsVSin.png)
