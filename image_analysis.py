@@ -51,7 +51,54 @@ on acnlinec and laptop Dell Latitude E6420, both with pyqtgraph 0.10.0:
 
 #__version__ = 'v08 2017-12-29' # pyPNG file reader option
 #__version__ = 'v09 2018-01-02' # fixed blue/red color swap for -eQT
-__version__ = 'v10 2018-01-03' # interactive console added, aspect ratio locked
+#__version__ = 'v10 2018-01-03' # interactive console added, aspect ratio locked
+__version__ = 'v11 2018-01-03' # -ecv corrected
+''' Profiling:
+image:avt29.png RGB32 w,h,p:(1620, 1220, 4) 8-bit
+
+laptop -eqt
+total time: 0.607
+getData: 0.0882
+profile:
+init: 2e-05
+load: 0.0794
+trans: 0.00358
+gotData: 0.00516
+image: 0.00193
+levels: 0.0506
+iso: 0.282
+roi init: 0.0176
+roi update: 0.16
+show: 0.00601
+
+laptop -ecv
+total time: 0.574
+getData: 0.0744
+profile:
+init: 0.0314
+load: 0.0685
+gotData: 0.00598
+image: 0.00199
+levels: 0.041
+iso: 0.254
+roi init: 0.0168
+roi update: 0.148
+show: 0.00608
+
+laptop -epng
+total time: 5.69
+getData: 5.16
+profile:
+init: 0.0011
+load: 4.74
+gotData: 0.416
+image: 0.00215
+levels: 0.048
+iso: 0.279
+roi init: 0.0219
+roi update: 0.16
+show: 0.0185
+'''
 
 import sys
 import numpy as np
@@ -180,7 +227,7 @@ if pargs.extract == 'cv': # get data array using OpenCV
     data = cv.imread(pargs.file,-1)
     height,width,nplanes = data.shape
     try:
-        windowTitle += '(h,w,d):'+str((width,height,nplanes))+' of '+str(data.dtype)
+        windowTitle += '(w,h,p):'+str((width,height,nplanes))+' of '+str(data.dtype)
         print(windowTitle)
     except Exception as e:
         print('ERROR loading image '+pargs.file+str(e))
@@ -205,8 +252,8 @@ if pargs.extract == 'cv': # get data array using OpenCV
         data = cv.warpAffine(data,transform,(width,height))
         profilingState['trans'] = timer()
     # data was: height,width,depth, but setImage require width,height,depth
-    data = np.swapaxes(data,0,1)
-    #if nplanes == 4: data = data[...,[2,1,0,3]] # convert BGRA to RGBA, it is very fast.
+    #data = np.swapaxes(data,0,1)
+    if nplanes == 3: data = data[...,[2,1,0]] # convert BGRA to RGBA, it is very fast.
     
 elif pargs.extract == 'qt': # get data array using QT
     qimg = QtGui.QImage()
@@ -366,7 +413,7 @@ if pargs.console:
     gWidgetConsole = CustomConsoleWidget(
         namespace={'pg': pg, 'np': np, 'plot': roiPlot, 'roi':selected,
           'data':data, 'image': qimg, 'imageItem':imgItem, 'sh':sh},
-        historyFile='/tmp/pygpm_console.pcl',
+        historyFile='/tmp/%s.pcl'%parser.prog,
         text="""This is an interactive python console. The numpy and pyqtgraph modules have already been imported  as 'np' and 'pg'
 The shell command can be invoked as sh('command').
 Accessible local objects: 'data': image array, 'roi': roi array, 'plot': bottom plot, 'image': QImage, 'imageItem': image object.
