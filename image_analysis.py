@@ -19,7 +19,8 @@ The OpenCV (option -e cv) is as fast as pyqtgraph, supports 16-bits/channel,
 it is a large package, not widely available. 
 
 The PyPNG (option -e png) supports 16-bit and more per channel for PNG images, 
-it is pure python and widely available. Slow on color images. 
+it is pure python can be downloaded from: https://github.com/drj11/pypng.
+Slow on color images.
 """
 #__version__ = 'v01 2017-12-20' #created
 #__version__ = 'v02 2017-12-20' # fixed possible line padding in imageToArray
@@ -27,23 +28,6 @@ it is pure python and widely available. Slow on color images.
 #__version__ = 'v04 2017-12-26' # opencv
 #__version__ = 'r05 2017-12-27' # col-major orientation for QT to match openCV 
 #__version__ = 'r06 2017-12-27' # row-major for ImageItem
-''' Comparison of analysis of avt29.png (ARGB 1620x1220) 
-on acnlinec and laptop Dell Latitude E6420, both with pyqtgraph 0.10.0:
-+-----------------+----------+
-|    acnlinec     |  laptop  |
-+-----------------+----------+
- total time: 1.4    0.9
- profile:
- load: 0.134        0.075
- trans: 2.1e-05     2.1e-5
- toArray: 0.001     0.001
- image: 0.178       0.164
- levels: 0.0713     0.0437
- iso: 0.307         0.384
- roi: 0.800         0.226
- show: 0.005        0.0065
-------------------+----------+
-'''
 #__version__ = 'r06 2017-12-27' # flipping corrected
 #__version__ = 'v07 2017-12-28' # corrected the axis selection for ROI histogram
 #TODO-v07# the binning of the ROI is relative to the ROI itself, for example, if one pixel is saturated then in the roi hist its value will be splitted between the neighboring bins,
@@ -53,52 +37,6 @@ on acnlinec and laptop Dell Latitude E6420, both with pyqtgraph 0.10.0:
 #__version__ = 'v09 2018-01-02' # fixed blue/red color swap for -eQT
 #__version__ = 'v10 2018-01-03' # interactive console added, aspect ratio locked
 __version__ = 'v11 2018-01-03' # -ecv corrected
-''' Profiling:
-image:avt29.png RGB32 w,h,p:(1620, 1220, 4) 8-bit
-
-laptop -eqt
-total time: 0.607
-getData: 0.0882
-profile:
-init: 2e-05
-load: 0.0794
-trans: 0.00358
-gotData: 0.00516
-image: 0.00193
-levels: 0.0506
-iso: 0.282
-roi init: 0.0176
-roi update: 0.16
-show: 0.00601
-
-laptop -ecv
-total time: 0.574
-getData: 0.0744
-profile:
-init: 0.0314
-load: 0.0685
-gotData: 0.00598
-image: 0.00199
-levels: 0.041
-iso: 0.254
-roi init: 0.0168
-roi update: 0.148
-show: 0.00608
-
-laptop -epng
-total time: 5.69
-getData: 5.16
-profile:
-init: 0.0011
-load: 4.74
-gotData: 0.416
-image: 0.00215
-levels: 0.048
-iso: 0.279
-roi init: 0.0219
-roi update: 0.16
-show: 0.0185
-'''
 
 import sys
 import numpy as np
@@ -112,9 +50,6 @@ pg.setConfigOptions(imageAxisOrder='row-major')
 import pyqtgraph.dockarea
 
 pg.mkQApp()
-#win = pg.GraphicsLayoutWidget()
-#qGraphicsGridLayout = win.ci.layout
-#qGraphicsGridLayout.setColumnFixedWidth(1,150)
 win = QtGui.QMainWindow()
 area = pg.dockarea.DockArea()
 win.setCentralWidget(area)
