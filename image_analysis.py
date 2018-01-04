@@ -3,12 +3,12 @@
 """
 Common image analysis using pyqtgraph or optionally, PyPNG or OpenCV.
 - Wide range of image formats.
-- 16-bit grayscale images supported (with PyPNG or OpenCV).
+- 16-bit images supported (requires PyPNG or OpenCV).
 - Image orientation and rotation (program options: -x, -y, -R).
 - Interactive zooming, panning.
 - Contrast control: displays histogram of image data with movable region 
     defining the dark/light levels (program option: -H).
-- ROI and embedded plot for measuring image values (program option -r).
+- ROI and embedded plot for measuring image color intensities (program option -r).
 - Isocurves (program option -i).
 - Interactive console with access to image data, graphics objects and shell commands.
 - Export as PNG, TIFF, JPG,..., SVG?, Matplotlib, CSV, HDF5.
@@ -36,7 +36,8 @@ Slow on color images.
 #__version__ = 'v08 2017-12-29' # pyPNG file reader option
 #__version__ = 'v09 2018-01-02' # fixed blue/red color swap for -eQT
 #__version__ = 'v10 2018-01-03' # interactive console added, aspect ratio locked
-__version__ = 'v11 2018-01-03' # -ecv corrected
+#__version__ = 'v11 2018-01-03' # -ecv corrected
+__version__ = 'r12 2018-01-04' # grayData, color intensities in roi plot
 
 import sys
 import numpy as np
@@ -80,7 +81,8 @@ parser.add_argument('-R','--rotate', type=float, default = 0., help=
 parser.add_argument('-H','--hist', action='store_false', help='Disable histogram with contrast and isocurve contol')
 parser.add_argument('-e','--extract',default='qt',help='image extractor: qt for QT, cv for OpenCV, png for pyPng')
 parser.add_argument('-c','--console', action='store_true', help='Enable interactive python console')
-#parser.add_argument('-p','--profile',action='store_true',help='Print profiling information')
+parser.add_argument('-g','--gray', action='store_true', help='Show gray image')
+
 parser.add_argument('file', default='avt23.png', help='image file') #nargs='*', 
 pargs = parser.parse_args()
 
@@ -139,12 +141,16 @@ if pargs.extract == 'qt':
             return arr
 
 def rgb2gray(data):
+    import math
     # convert RGB to Grayscale using weighted sum
     if len(data.shape) < 3: # no need to convert gray arrays
         return data
     else:
-        r,g,b = data[:,:,0], data[:,:,1], data[:,:,2]
-        return 0.2989 * r + 0.5870 * g + 0.1140 * b
+        #return np.dot(data[...,:3], [0.299, 0.587, 0.114]) # 1.6 times slower: timing: 0.169
+        r,g,b = data[:,:,0], data[:,:,1], data[:,:,2] 
+        #return (r+g+b)/3. # not nice on basi6a16.png, timing 0.036
+        #return  np.sqrt(0.299*(r**2) + 0.587*(g**2) + 0.114*(b**2)) # ugly on basi6a16.png
+        return 0.2989 * r + 0.5870 * g + 0.1140 * b # Luminance (perceived), timing: 0.0959
 #,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
 
@@ -155,7 +161,7 @@ profilingStart = timer()
 #,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 #````````````````````````````Get numpy array from file````````````````````````
 windowTitle = 'image:'+pargs.file.split('/')[-1:][0]+' '
-
+qimg = None
 if pargs.extract == 'cv': # get data array using OpenCV
     import cv2 as cv # import openCV
     profilingState['init'] = timer()
@@ -242,6 +248,13 @@ else:
 if pargs.dbg: print('array: '+str((data.shape,data)))
 profilingState['gotData'] = timer()
 
+if pargs.roi or pargs.iso:
+    grayData = rgb2gray(data)
+    profilingState['rgb2gray'] = timer()
+    if pargs.gray: data = grayData
+else:
+    grayData = data
+
 # set image
 imgItem.setImage(data)
 win.setWindowTitle(windowTitle)
@@ -273,7 +286,7 @@ if pargs.iso:
     hist.vb.setMouseEnabled(y=False) # makes user interaction a little easier
     isoLine.setValue(0.8)
     isoLine.setZValue(1000) # bring iso line above contrast controls
-    iso.setData(pg.gaussianFilter(rgb2gray(data), (2, 2)))
+    iso.setData(pg.gaussianFilter(grayData, (2, 2)))
     
     # Callback for handling user interaction with isocurves
     def updateIsocurve():
@@ -284,7 +297,7 @@ if pargs.iso:
     isoLine.sigDragged.connect(updateIsocurve)
     profilingState['iso'] = timer()
 
-roiPlot,selected = None,None
+roiPlot,means = None,None
 if pargs.roi:
     # Custom ROI for selecting an image region
     dockPlot = pg.dockarea.Dock("dockPlot", size=(1,100))
@@ -292,19 +305,27 @@ if pargs.roi:
     dockPlot.hideTitleBar() # dockPlot: Hide title bar on dock Plot
     roiPlot = pg.PlotWidget()
     dockPlot.addWidget(roiPlot)
-    #w,h = data.shape[:2]
-    roi = pg.ROI([width*0.25, height*0.25], [width*0.5, height*0.5])
-    roi.addScaleHandle([1, 1], [0, 0])
+
+    #roi = pg.ROI([width*0.25, height*0.25], [width*0.5, height*0.5])   
+    #roi.addScaleHandle([1, 1], [0, 0])
+    roi = pg.RectROI([width*0.25, height*0.25], [width*0.5, height*0.5])
+    
     plotItem.addItem(roi)
     roi.setZValue(10)  # make sure ROI is drawn above image
 
     # Callback for handling user interaction in ROI
     def updatePlot():
-        global imgItem, roi, data, p2, selected
-        selected = roi.getArrayRegion(rgb2gray(data), imgItem)
-        #print 'selected ',selected
-        #print selected.mean(axis=1)
-        roiPlot.plot(selected.mean(axis=0), clear=True)#, stepMode=True)
+        global imgItem, roi, data, p2, means
+        #print(str((roi.pos(),roi.size())))
+        slices = roi.getArraySlice(data,imgItem)[0][:2]
+        means = data[slices].mean(axis=0)
+        if np.isscalar(means[0]):
+            roiPlot.plot(means,clear=True)
+        else:
+            # plot color intensities
+            roiPlot.plot(means[:,0],pen='r', clear=True) # plot red
+            roiPlot.plot(means[:,1],pen='g',) # plot green
+            roiPlot.plot(means[:,2],pen='b',) # plot blue
     
     # Connect callback to signal
     roi.sigRegionChanged.connect(updatePlot)
@@ -344,21 +365,19 @@ if pargs.console:
         import subprocess,os
         print subprocess.Popen(s,shell=True, stdout = None if s[-1:]=="&" else subprocess.PIPE).stdout.read()
         
-    #gWidgetConsolpimae = pg.console.ConsoleWidget(
+    #gWidgetConsole = pg.console.ConsoleWidget(
     gWidgetConsole = CustomConsoleWidget(
-        namespace={'pg': pg, 'np': np, 'plot': roiPlot, 'roi':selected,
+        namespace={'pg':pg, 'np': np, 'plot': roiPlot, 'roi':roi, 'roiData':means,
           'data':data, 'image': qimg, 'imageItem':imgItem, 'sh':sh},
         historyFile='/tmp/%s.pcl'%parser.prog,
         text="""This is an interactive python console. The numpy and pyqtgraph modules have already been imported  as 'np' and 'pg'
 The shell command can be invoked as sh('command').
-Accessible local objects: 'data': image array, 'roi': roi array, 'plot': bottom plot, 'image': QImage, 'imageItem': image object.
-For example, to plot vertical projection of the roi: plot.plot(roi.mean(axis=1), clear=True).
+Accessible local objects: 'data': image array, 'roiData': roi array, 'plot': bottom plot, 'image': QImage, 'imageItem': image object.
+For example, to plot vertical projection of the roi: plot.plot(roiData.mean(axis=1), clear=True).
 to swap Red/Blue colors: imageItem.setImage(data[...,[2,1,0,3]])
 """)
     #print 'gWidgetConsole:',gWidgetConsole.ui.historyList
     dockConsole.addWidget(gWidgetConsole)
-    # define console shell function, examples: sh('ls') or sh('pet&') 
-    #gWidgetConsole.runCmd('def sh(s): print subprocess.Popen(s,shell=True, stdout = None if s[-1:]=="&" else subprocess.PIPE).stdout.read()')
     
     def cprint(msg): gWidgetConsole.write('#'+msg+'\n') # use it to inform the user
   
