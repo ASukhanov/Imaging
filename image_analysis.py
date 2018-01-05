@@ -9,8 +9,10 @@ Common image analysis using pyqtgraph or optionally, PyPNG or OpenCV.
 - Contrast control: displays histogram of image data with movable region 
     defining the dark/light levels (program option: -H).
 - ROI and embedded plot for measuring image color intensities (program option -r).
+- The centroid of the ROI is marked on the image with the red cross.
 - Isocurves (program option -i).
 - Interactive console with access to image data, graphics objects and shell commands.
+- The centroid position, RMS and sum of distribution inside the ROI is reported in the console dock.
 - Export as PNG, TIFF, JPG,..., SVG?, Matplotlib, CSV, HDF5.
 
 The pyqtgraph is fast in most cases but it only supports 8-bits/channel. 
@@ -37,7 +39,8 @@ Slow on color images.
 #__version__ = 'v09 2018-01-02' # fixed blue/red color swap for -eQT
 #__version__ = 'v10 2018-01-03' # interactive console added, aspect ratio locked
 #__version__ = 'v11 2018-01-03' # -ecv corrected
-__version__ = 'r12 2018-01-04' # grayData, color intensities in roi plot
+#__version__ = 'r12 2018-01-04' # grayData, color intensities in roi plot
+__version__ = 'v13 2018-01-05' # calculation of centroid, width and sum of the ROI
 
 import sys
 import numpy as np
@@ -151,6 +154,9 @@ def rgb2gray(data):
         #return (r+g+b)/3. # not nice on basi6a16.png, timing 0.036
         #return  np.sqrt(0.299*(r**2) + 0.587*(g**2) + 0.114*(b**2)) # ugly on basi6a16.png
         return 0.2989 * r + 0.5870 * g + 0.1140 * b # Luminance (perceived), timing: 0.0959
+    
+def cprint(msg): 
+    if pargs.dbg: print(msg)  
 #,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 
 
@@ -230,12 +236,12 @@ elif pargs.extract == 'png':
     reader = png.Reader(pargs.file)
     profilingState['init'] = timer()
     width,height,pix,meta = reader.read_flat() # slow for RGB images
-    planes = meta['planes']
+    nplanes = meta['planes']
     profilingState['load'] = timer()
-    windowTitle +=' w,h,p:'+str((width,height,planes))+' %i-bit' % (meta['bitdepth'])
+    windowTitle +=' w,h,p:'+str((width,height,nplanes))+' %i-bit' % (meta['bitdepth'])
     print(windowTitle)
     if pargs.dbg: print('meta: '+str(meta))    
-    hwp = (height,width,planes) if planes > 1 else (height,width)
+    hwp = (height,width,nplanes) if nplanes > 1 else (height,width)
     d = np.reshape(pix,hwp)
     #data = np.flipud(d)
     data = d[::-1,...] # flip first axis, height
@@ -251,7 +257,9 @@ profilingState['gotData'] = timer()
 if pargs.roi or pargs.iso:
     grayData = rgb2gray(data)
     profilingState['rgb2gray'] = timer()
-    if pargs.gray: data = grayData
+    if pargs.gray: 
+        data = grayData
+        nplanes = 1
 else:
     grayData = data
 
@@ -297,7 +305,7 @@ if pargs.iso:
     isoLine.sigDragged.connect(updateIsocurve)
     profilingState['iso'] = timer()
 
-roiPlot,means = None,None
+roiPlot,meansV = None,None
 if pargs.roi:
     # Custom ROI for selecting an image region
     dockPlot = pg.dockarea.Dock("dockPlot", size=(1,100))
@@ -312,20 +320,55 @@ if pargs.roi:
     
     plotItem.addItem(roi)
     roi.setZValue(10)  # make sure ROI is drawn above image
+    
+    #centerLabel = pg.LabelItem('+',color='r',justify='center')
+    centerLabel = pg.TextItem('+',color='r',anchor=(0.5,0.5))
+    plotItem.addItem(centerLabel)
+    
 
+    def distMoments(data):
+        ''' calculate first and second moments of a distribution'''
+        x = np.arange(data.size)
+        m1 = np.sum(x*data)/np.sum(data)
+        m2 = np.sqrt(np.abs(np.sum((x-m1)**2*data)/np.sum(data)))
+        return m1,m2
+    
     # Callback for handling user interaction in ROI
     def updatePlot():
-        global imgItem, roi, data, p2, means
+        global imgItem, roi, data, p2, meansV
+        
+        #````````Calculate centroid and width
         #print(str((roi.pos(),roi.size())))
-        slices = roi.getArraySlice(data,imgItem)[0][:2]
-        means = data[slices].mean(axis=0)
-        if np.isscalar(means[0]):
-            roiPlot.plot(means,clear=True)
+        slices = roi.getArraySlice(grayData,imgItem)[0][:2]
+        roiArray = grayData[slices]
+        oy,ox = slices[0].start, slices[1].start
+        
+        ## find center of mass of the roi
+        #import scipy.ndimage as ndi
+        #cm = ndi.center_of_mass(roiArray) # ROI centerMass in ROI indexes
+        #cmOfRoi = [i+k for i,k in zip(cm,(oy,ox))] # ROI centerMass in Image indexes
+        #cprint('ROI Center of Mass: (%0.4g,%0.4g)'%(cmOfRoi[1],cmOfRoi[0]))
+        
+        meansV = roiArray.mean(axis=0)
+        meansH = roiArray.mean(axis=1)      
+        momentsH = distMoments(meansV)
+        momentsV = distMoments(meansH)
+        centroid = (momentsH[0] + ox +.5, momentsV[0] + oy +.5) # .5 is for pixel center
+        width = (momentsH[1]*2,momentsV[1]*2)
+        cprint('Centroid: (%0.4g,%0.4g)'%centroid+', width:(%0.4g,%0.4g)'%width+', sum:%0.4g'%roiArray.sum())
+        
+        # draw cross at the cetroid position
+        centerLabel.setPos(*centroid)
+        
+        # plot the ROI histograms
+        if nplanes == 1 :
+            roiPlot.plot(meansV,clear=True)
         else:
             # plot color intensities
-            roiPlot.plot(means[:,0],pen='r', clear=True) # plot red
-            roiPlot.plot(means[:,1],pen='g',) # plot green
-            roiPlot.plot(means[:,2],pen='b',) # plot blue
+            meansV = data.mean(axis=0)
+            roiPlot.plot(meansV[:,0],pen='r', clear=True) # plot red
+            roiPlot.plot(meansV[:,1],pen='g',) # plot green
+            roiPlot.plot(meansV[:,2],pen='b',) # plot blue
     
     # Connect callback to signal
     roi.sigRegionChanged.connect(updatePlot)
@@ -367,8 +410,8 @@ if pargs.console:
         
     #gWidgetConsole = pg.console.ConsoleWidget(
     gWidgetConsole = CustomConsoleWidget(
-        namespace={'pg':pg, 'np': np, 'plot': roiPlot, 'roi':roi, 'roiData':means,
-          'data':data, 'image': qimg, 'imageItem':imgItem, 'sh':sh},
+        namespace={'pg':pg, 'np': np, 'plot': roiPlot, 'roi':roi, 'roiData':meansV,
+          'data':data, 'image': qimg, 'imageItem':imgItem, 'pargs':pargs, 'sh':sh},
         historyFile='/tmp/%s.pcl'%parser.prog,
         text="""This is an interactive python console. The numpy and pyqtgraph modules have already been imported  as 'np' and 'pg'
 The shell command can be invoked as sh('command').
@@ -381,8 +424,6 @@ to swap Red/Blue colors: imageItem.setImage(data[...,[2,1,0,3]])
     
     def cprint(msg): gWidgetConsole.write('#'+msg+'\n') # use it to inform the user
   
-else:
-    def cprint(msg): print(msg)  
 #,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
 win.resize(1200, 800)
 win.show()
